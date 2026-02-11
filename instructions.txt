@@ -1,0 +1,6 @@
+1. User baru login
+2. User mengisi kelengkapan biodata
+3. User generate WorkChat 
+4. User mengisi Kebutuhan Field URL, Model, Context, Template
+5. Setting WorkChat Private atau Public 
+6. User bisa membagikan link dari ai tersebut.
