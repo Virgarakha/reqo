@@ -361,7 +361,7 @@ Update the workflow above. Do NOT recreate from scratch unless necessary.
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_OPENROUTER_KEY}`,
+            Authorization: `Bearer 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`,
           },
           body: JSON.stringify({
             model: "stepfun/step-3.5-flash:free",
@@ -395,35 +395,38 @@ Update the workflow above. Do NOT recreate from scratch unless necessary.
 
     saveHistory(nodes, edges);
 
-    const startX = 250;
-    const startY = 100;
-    const gapY = 120;
+    const gapX = 250;
+    const gapY = 160;
+    const columns = 3; // maksimal 3 node per baris
 
-    const generatedNodes = aiResult.nodes.map((node, index) => ({
-      id: crypto.randomUUID(),
-      type: "custom",
-      position: {
-        x: startX,
-        y: startY + index * gapY,
-      },
-      data: {
-        label: node.label,
-      },
-    }));
+    const generatedNodes = aiResult.nodes.map((node, index) => {
+      const row = Math.floor(index / columns);
+      const col = index % columns;
+
+      return {
+        id: crypto.randomUUID(),
+        type: "custom",
+        position: {
+          x: 200 + col * gapX,
+          y: 100 + row * gapY,
+        },
+        data: {
+          label: node.label,
+        },
+      };
+    });
 
     const generatedEdges = aiResult.connections.map((conn) => ({
       id: crypto.randomUUID(),
       source: generatedNodes[conn.from].id,
       target: generatedNodes[conn.to].id,
+      type: "smoothstep",
     }));
 
     setNodes(generatedNodes);
     setEdges(generatedEdges);
 
-    setTimeout(() => {
-      fitView();
-    }, 200);
-
+    setTimeout(() => fitView(), 200);
     setAiResult(null);
   };
 
