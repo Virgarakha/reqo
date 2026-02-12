@@ -32,14 +32,7 @@ import { Panel } from "reactflow";
 
 const nodeTypes = { custom: CustomNode };
 
-const initialNodes = [
-  {
-    id: "1",
-    position: { x: 250, y: 100 },
-    data: { label: "Start Process" },
-    type: "custom",
-  },
-];
+const initialNodes = [];
 
 const initialEdges = [];
 const WorkFlow = () => {
@@ -55,22 +48,63 @@ const WorkFlow = () => {
   const [darkMode, setDarkMode] = useState(true);
 
   const [aiPrompt, setAiPrompt] = useState("");
-  const [aiResult, setAiResult] = useState(null);
+  const [aiResult, setAiResult] = useState({
+    tables: [],
+    relations: [],
+  });
   const [loadingAI, setLoadingAI] = useState(false);
   const [chatHistory, setChatHistory] = useState([
     {
       role: "system",
       content: `
-        You are a workflow generator AI.
+You are a database architect AI.
 
-        You must UPDATE existing workflow if provided.
-        Return ONLY valid JSON.
-        Format:
+You must UPDATE existing database schema if provided.
+Return ONLY valid JSON.
+
+Format:
+{
+  "tables": [
+    {
+      "name": "table_name",
+      "columns": [
         {
-        "nodes": [{ "label": "text" }],
-        "connections": [{ "from": 0, "to": 1 }]
+          "name": "column_name",
+          "type": "datatype",
+          "primary": true,
+          "unique": false,
+          "nullable": false,
+          "foreign_key": {
+            "references": "table.column"
+          }
         }
-        Do not explain anything.
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from_table": "tableA",
+      "to_table": "tableB",
+      "type": "one-to-many | one-to-one | many-to-many"
+    }
+  ]
+}
+
+Do not explain anything.
+Do not return markdown.
+Only JSON.
+
+For every relation, you MUST define a foreign_key inside the child table column.
+Example:
+{
+  "name": "user_id",
+  "type": "uuid",
+  "foreign_key": {
+    "references": "users.id"
+  }
+}
+
+
     `,
     },
   ]);
@@ -190,20 +224,12 @@ const WorkFlow = () => {
   // ================= MULTI SELECT =================
 
   const handleNodeClick = (event, node) => {
-    if (event.ctrlKey) {
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.id === node.id ? { ...n, selected: !n.selected } : n,
-        ),
-      );
-    } else {
-      setNodes((nds) =>
-        nds.map((n) => ({
-          ...n,
-          selected: n.id === node.id,
-        })),
-      );
-    }
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        selected: n.id === node.id,
+      })),
+    );
   };
 
   // ================= UPDATE LABEL =================
@@ -233,7 +259,7 @@ const WorkFlow = () => {
   // ================= ADD NODE =================
 
   // ADD NOTE
-  const addNoteAtPosition = (clientX, clientY) => {
+  const addTableAtPosition = (clientX, clientY) => {
     const bounds = wrapperRef.current.getBoundingClientRect();
 
     const position = project({
@@ -243,37 +269,58 @@ const WorkFlow = () => {
 
     saveHistory(nodes, edges);
 
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: crypto.randomUUID(),
-        position,
-        data: { label: "New Note" },
-        type: "custom",
+    const newTable = {
+      id: crypto.randomUUID(),
+      type: "custom",
+      position,
+      data: {
+        table: {
+          name: "new_table",
+          columns: [
+            {
+              name: "id",
+              type: "uuid",
+              primary: true,
+            },
+          ],
+        },
+        darkMode,
       },
-    ]);
+    };
+
+    setNodes((nds) => [...nds, newTable]);
   };
 
-  // ADD COMMENT (beda warna misalnya)
-  const addCommentAtPosition = (clientX, clientY) => {
-    const bounds = wrapperRef.current.getBoundingClientRect();
+  const addColumnToSelectedTable = () => {
+    const selected = nodes.find((n) => n.selected);
 
-    const position = project({
-      x: clientX - bounds.left,
-      y: clientY - bounds.top,
-    });
+    if (!selected || !selected.data?.table) return;
 
     saveHistory(nodes, edges);
 
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: crypto.randomUUID(),
-        position,
-        data: { label: "New Comment", isComment: true },
-        type: "custom",
-      },
-    ]);
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id === selected.id) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              table: {
+                ...n.data.table,
+                columns: [
+                  ...n.data.table.columns,
+                  {
+                    name: "new_column",
+                    type: "varchar",
+                  },
+                ],
+              },
+            },
+          };
+        }
+        return n;
+      }),
+    );
   };
 
   // SELECT ALL
@@ -325,14 +372,13 @@ const WorkFlow = () => {
     </button>
   );
 
-  const getCurrentWorkflowContext = () => {
-    return JSON.stringify({
-      nodes: nodes.map((n) => ({ label: n.data.label })),
-      connections: edges.map((e) => ({
-        from: nodes.findIndex((n) => n.id === e.source),
-        to: nodes.findIndex((n) => n.id === e.target),
-      })),
-    });
+  const getCurrentDatabaseContext = () => {
+    return JSON.stringify(
+      aiResult || {
+        tables: [],
+        relations: [],
+      },
+    );
   };
 
   const handleAskAI = async () => {
@@ -344,13 +390,14 @@ const WorkFlow = () => {
         {
           role: "user",
           content: `
-Current Workflow:
-${getCurrentWorkflowContext()}
+Current Database Schema:
+${getCurrentDatabaseContext()}
 
-User Request:
+User Requirement:
 ${aiPrompt}
 
-Update the workflow above. Do NOT recreate from scratch unless necessary.
+Update the database schema above.
+
         `,
         },
       ];
@@ -390,44 +437,94 @@ Update the workflow above. Do NOT recreate from scratch unless necessary.
     }
   };
 
-  const generateWorkflowFromAI = () => {
+  const generateDatabaseFromAI = () => {
     if (!aiResult) return;
 
     saveHistory(nodes, edges);
 
-    const gapX = 250;
-    const gapY = 160;
-    const columns = 3; // maksimal 3 node per baris
+    const gapX = 400;
+    const gapY = 300;
 
-    const generatedNodes = aiResult.nodes.map((node, index) => {
-      const row = Math.floor(index / columns);
-      const col = index % columns;
+    const generatedNodes = aiResult.tables.map((table, index) => {
+      const row = Math.floor(index / 2);
+      const col = index % 2;
 
       return {
-        id: crypto.randomUUID(),
+        id: table.name,
         type: "custom",
         position: {
-          x: 200 + col * gapX,
-          y: 100 + row * gapY,
+          x: 200 + col * 400,
+          y: 100 + row * 300,
         },
         data: {
-          label: node.label,
+          table: table,
+          darkMode,
         },
       };
     });
 
-    const generatedEdges = aiResult.connections.map((conn) => ({
-      id: crypto.randomUUID(),
-      source: generatedNodes[conn.from].id,
-      target: generatedNodes[conn.to].id,
-      type: "smoothstep",
-    }));
+    const generatedEdges = [];
+
+    aiResult.tables.forEach((table) => {
+      table.columns.forEach((col) => {
+        if (col.foreign_key?.references) {
+          const [targetTable, targetColumn] =
+            col.foreign_key.references.split(".");
+
+          // cari relation type dari aiResult.relations
+          const relation = aiResult.relations.find(
+            (r) =>
+              (r.from_table === table.name && r.to_table === targetTable) ||
+              (r.from_table === targetTable && r.to_table === table.name),
+          );
+
+          let relationLabel = "";
+
+          if (relation) {
+            switch (relation.type) {
+              case "one-to-many":
+                relationLabel = "hasMany";
+                break;
+              case "one-to-one":
+                relationLabel = "hasOne";
+                break;
+              case "many-to-many":
+                relationLabel = "belongsToMany";
+                break;
+            }
+          }
+
+          generatedEdges.push({
+            id: crypto.randomUUID(),
+            source: table.name,
+            target: targetTable,
+            sourceHandle: `${table.name}-${col.name}-source`,
+            targetHandle: `${targetTable}-${targetColumn}-target`,
+            type: "smoothstep",
+            animated: false,
+            label: relationLabel,
+            labelStyle: {
+              fill: darkMode ? "#fff" : "#111",
+              fontSize: 10,
+              fontWeight: 600,
+            },
+            labelBgStyle: {
+              fill: darkMode ? "#222" : "#fff",
+              stroke: darkMode ? "#444" : "#ddd",
+              strokeWidth: 1,
+              rx: 6,
+              ry: 6,
+            },
+            labelBgPadding: [6, 3],
+          });
+        }
+      });
+    });
 
     setNodes(generatedNodes);
     setEdges(generatedEdges);
 
     setTimeout(() => fitView(), 200);
-    setAiResult(null);
   };
 
   const handleMouseDown = (e) => {
@@ -828,10 +925,10 @@ Update the workflow above. Do NOT recreate from scratch unless necessary.
                 })()}
               </div>
             </div>
-            {aiResult && (
+            {aiResult?.tables?.length > 0 && (
               <button
                 className="flex items-center justify-center gap-2"
-                onClick={generateWorkflowFromAI}
+                onClick={generateDatabaseFromAI}
                 style={{
                   marginTop: 10,
                   width: "100%",
@@ -842,7 +939,7 @@ Update the workflow above. Do NOT recreate from scratch unless necessary.
                   fontSize: 12,
                 }}
               >
-                Generate Workflow <MousePointerClick size={18} />
+                Generate Database <MousePointerClick size={18} />
               </button>
             )}
           </Panel>
@@ -869,25 +966,23 @@ Update the workflow above. Do NOT recreate from scratch unless necessary.
           <div
             className="hover:bg-[#222] p-2 px-4 cursor-pointer text-xs"
             onClick={() => {
-              addNoteAtPosition(contextMenu.x, contextMenu.y);
+              addTableAtPosition(contextMenu.x, contextMenu.y);
               setContextMenu(null);
             }}
           >
-            Add Note
+            Add Table
           </div>
 
-          {/* ADD COMMENT */}
           <div
             className="hover:bg-[#222] p-2 px-4 cursor-pointer text-xs"
             onClick={() => {
-              addCommentAtPosition(contextMenu.x, contextMenu.y);
+              addColumnToSelectedTable();
               setContextMenu(null);
             }}
           >
-            Add Comment
+            Add Column
           </div>
 
-          {/* SELECT ALL */}
           <div
             className="hover:bg-[#222] p-2 px-4 cursor-pointer text-xs"
             onClick={() => {
