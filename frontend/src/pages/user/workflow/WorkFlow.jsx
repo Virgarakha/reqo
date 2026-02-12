@@ -15,6 +15,8 @@ import {
   MousePointerClick,
   Sparkles,
   Minimize2,
+  FolderDown,
+  FileCodeCorner,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -127,28 +129,27 @@ Example:
   const [importType, setImportType] = useState(null);
 
   const handleImport = (type, content) => {
-  let parsed;
+    let parsed;
 
-  if (type === "json") parsed = parseJSON(content);
-  if (type === "sql") parsed = parseSQL(content);
-  if (type === "laravel") parsed = parseLaravel(content);
+    if (type === "json") parsed = parseJSON(content);
+    if (type === "sql") parsed = parseSQL(content);
+    if (type === "laravel") parsed = parseLaravel(content);
 
-  if (!parsed?.tables) return;
+    if (!parsed?.tables) return;
 
-  const newNodes = parsed.tables.map((table, index) => ({
-    id: table.name,
-    type: "custom",
-    position: { x: 200, y: 100 + index * 200 },
-    data: {
-      table,
-      darkMode,
-    },
-  }));
+    const newNodes = parsed.tables.map((table, index) => ({
+      id: table.name,
+      type: "custom",
+      position: { x: 200, y: 100 + index * 200 },
+      data: {
+        table,
+        darkMode,
+      },
+    }));
 
-  setNodes(newNodes);
-  setImportType(null);
-};
-
+    setNodes(newNodes);
+    setImportType(null);
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem("db_designer_project");
@@ -1029,35 +1030,34 @@ Update the database schema above.
             </div>
           )}
           <Panel position="bottom-right">
-            <button
-              onClick={exportSQL}
-              style={{
-                marginTop: 8,
-                width: "100%",
-                padding: 8,
-                borderRadius: 8,
-                background: "#1f2937",
-                color: "white",
-                fontSize: 12,
-              }}
-            >
-              Export SQL
-            </button>
+            <div className="flex flex-col items-end mb-5 gap-5">
+              <button
+                className="p-4 pointer"
+                onClick={exportSQL}
+                style={{
+                  borderRadius: 8,
+                  background: "#222",
+                  color: "white",
+                  fontSize: 12,
+                }}
+              >
+                <FileCodeCorner size={20} />
+              </button>
 
-            <button
-              onClick={exportLaravelMigration}
-              style={{
-                marginTop: 8,
-                width: "100%",
-                padding: 8,
-                borderRadius: 8,
-                background: "#0f172a",
-                color: "white",
-                fontSize: 12,
-              }}
-            >
-              Export Laravel Migration
-            </button>
+              <button
+                className="p-4 pointer"
+                onClick={exportLaravelMigration}
+                style={{
+                  borderRadius: 8,
+                  background: "#222",
+                  color: "white",
+                  fontSize: 12,
+                }}
+              >
+                <FolderDown size={20} />
+              </button>
+                <ImportMenu onSelect={(type) => setImportType(type)} />
+            </div>
             <div
               style={{
                 background: "#222",
@@ -1115,6 +1115,7 @@ Update the database schema above.
                 })()}
               </div>
             </div>
+
             {aiResult?.tables?.length > 0 && (
               <button
                 className="flex items-center justify-center gap-2"
@@ -1184,16 +1185,14 @@ Update the database schema above.
           </div>
         </div>
       )}
-      <ImportMenu onSelect={(type) => setImportType(type)} />
 
-{importType && (
-  <ImportModal
-    type={importType}
-    onClose={() => setImportType(null)}
-    onImport={handleImport}
-  />
-)}
-
+      {importType && (
+        <ImportModal
+          type={importType}
+          onClose={() => setImportType(null)}
+          onImport={handleImport}
+        />
+      )}
     </div>
   );
 };

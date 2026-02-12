@@ -19,6 +19,8 @@ export default function CustomNode({ id, data }) {
 
   const table = data.table;
   const dark = data.darkMode;
+const isSelected = data.selected;
+
 
   const bg = dark ? "#1e1e1e" : "#ffffff";
   const headerBg = dark ? "#262626" : "#f3f4f6";
@@ -78,28 +80,27 @@ export default function CustomNode({ id, data }) {
     updateParent({ ...table, name: tableName, columns: updated });
   };
 
-useEffect(() => {
-  const handleSaveShortcut = (e) => {
-    if (e.ctrlKey && e.key.toLowerCase() === "s") {
-      e.preventDefault();
+  useEffect(() => {
+    const handleSaveShortcut = (e) => {
+      if (e.ctrlKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
 
-      if (document.activeElement) {
-        document.activeElement.blur();
+        if (document.activeElement) {
+          document.activeElement.blur();
+        }
+
+        setEditingColumnIndex(null);
+        setEditingTypeIndex(null);
+        setEditingTable(false);
       }
+    };
 
-      setEditingColumnIndex(null);
-      setEditingTypeIndex(null);
-      setEditingTable(false);
-    }
-  };
+    window.addEventListener("keydown", handleSaveShortcut);
 
-  window.addEventListener("keydown", handleSaveShortcut);
-
-  return () => {
-    window.removeEventListener("keydown", handleSaveShortcut);
-  };
-}, []);
-
+    return () => {
+      window.removeEventListener("keydown", handleSaveShortcut);
+    };
+  }, []);
 
   useEffect(() => {
     setTableName(table.name);
@@ -112,7 +113,10 @@ useEffect(() => {
         borderRadius: 12,
         overflow: "hidden",
         background: bg,
-        border: `1px solid ${borderColor}`,
+        border: isSelected
+  ? "1px solid #666"
+  : `1px solid ${borderColor}`,
+  transition: "all 0.15s ease",
         boxShadow: "0 8px 25px rgba(0,0,0,0.25)",
         fontSize: 12,
       }}
@@ -154,13 +158,15 @@ useEffect(() => {
 
       {/* COLUMNS */}
       <div>
-        {columns.map((col, index) => {
-          const baseType = col.type.includes("(")
-            ? col.type.split("(")[0]
-            : col.type;
+        {columns.filter(Boolean).map((col, index) => {
+          const safeType = col.type || "varchar(255)";
 
-          const length = col.type.includes("(")
-            ? col.type.split("(")[1]?.replace(")", "")
+          const baseType = safeType.includes("(")
+            ? safeType.split("(")[0]
+            : safeType;
+
+          const length = safeType.includes("(")
+            ? safeType.split("(")[1]?.replace(")", "")
             : "";
 
           return (
@@ -214,19 +220,18 @@ useEffect(() => {
               <div style={{ display: "flex", gap: 4 }}>
                 {editingTypeIndex === index ? (
                   <>
-<select
-  value={baseType}
-  onChange={(e) => handleTypeChange(index, e.target.value)}
-  style={{
-    fontSize: 11,
-    background: dark ? "#333" : "#eee",
-    color: textColor,
-    border: "none",
-    borderRadius: 4,
-    padding: "2px 4px",
-  }}
->
-
+                    <select
+                      value={baseType}
+                      onChange={(e) => handleTypeChange(index, e.target.value)}
+                      style={{
+                        fontSize: 11,
+                        background: dark ? "#333" : "#eee",
+                        color: textColor,
+                        border: "none",
+                        borderRadius: 4,
+                        padding: "2px 4px",
+                      }}
+                    >
                       {DATA_TYPES.map((type) => (
                         <option key={type} value={type}>
                           {type}

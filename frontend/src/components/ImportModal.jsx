@@ -47,6 +47,7 @@ export default function ImportModal({ type, onClose, onImport }) {
         </div>
 
         <input
+        className="bg-[#171717] border-1 border-[#2d2d2d] w-full p-2 px-4 text-[#333] text-sm rounded-md"
           type="file"
           accept={
             type === "json"

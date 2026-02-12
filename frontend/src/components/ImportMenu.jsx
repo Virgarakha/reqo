@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Menu } from "lucide-react";
+import { Menu, Upload } from "lucide-react";
 
 export default function ImportMenu({ onSelect }) {
   const [open, setOpen] = useState(false);
@@ -7,7 +7,7 @@ export default function ImportMenu({ onSelect }) {
   return (
     <div
       style={{
-        position: "absolute",
+        position: "",
         bottom: 20,
         left: 20,
         zIndex: 5000,
@@ -20,23 +20,24 @@ export default function ImportMenu({ onSelect }) {
           width: 50,
           height: 50,
           borderRadius: 12,
-          background: "#F2613F",
+          background: "#222",
           border: "none",
           color: "white",
           cursor: "pointer",
           boxShadow: "0 8px 20px rgba(0,0,0,0.3)",
         }}
       >
-        <Menu size={20} />
+        <Upload size={20} className="m-auto opacity-75 hover:opacity-100"/>
       </button>
+
 
       {/* DROPDOWN */}
       {open && (
         <div
           style={{
             position: "absolute",
-            bottom: 60,
-            left: 0,
+            bottom: 140,
+            right: 70,
             background: "#1e1e1e",
             borderRadius: 12,
             padding: 8,
