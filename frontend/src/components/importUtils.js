@@ -74,7 +74,7 @@ export function parseSQL(content) {
       name: tableName,
       columns,
     });
-  }
+  }b
 
   return { tables, relations };
 }

@@ -38,6 +38,7 @@ import {
   parseSQL,
   parseLaravel,
 } from "../../../components/importUtils";
+import { api } from "../../../services/api";
 
 const nodeTypes = { custom: CustomNode };
 
@@ -128,6 +129,9 @@ Example:
   const wrapperRef = useRef(null);
   const [importType, setImportType] = useState(null);
 
+  // backend implementasi
+  const [projectId, setProjectId] = useState(null);
+
   const handleImport = (type, content) => {
     let parsed;
 
@@ -152,25 +156,85 @@ Example:
   };
 
   useEffect(() => {
-    const saved = localStorage.getItem("db_designer_project");
+    const initProject = async () => {
+      // kalau sudah ada id di url / local
+      const savedId = localStorage.getItem("active_project_id");
 
-    if (saved) {
-      const parsed = JSON.parse(saved);
+      if (savedId) {
+        setProjectId(savedId);
+        const data = await api.getProject(savedId);
+        loadProjectToCanvas(data, savedId);
+        return;
+      }
 
-      const loadedNodes = parsed.tables.map((t) => ({
-        id: t.id,
-        type: "custom",
-        position: t.position,
-        data: {
-          table: t.table,
-          darkMode,
-        },
-      }));
+      // create baru
+      const newProject = await api.createProject({
+        name: "My Workflow 01",
+        theme: "dark",
+      });
 
-      setNodes(loadedNodes);
-      setEdges(parsed.edges || []);
-    }
+      setProjectId(newProject.id);
+      localStorage.setItem("active_project_id", newProject.id);
+    };
+
+    initProject();
   }, []);
+
+  const loadProjectToCanvas = (data, pid) => {
+    const loadedNodes = data.tables.map((table) => ({
+      id: table.id,
+      type: "custom",
+      position: {
+        x: table.position_x,
+        y: table.position_y,
+      },
+      data: {
+        table: {
+          id: table.id,
+          name: table.name,
+          columns: table.columns.map((col) => ({
+            name: col.name,
+            type: col.type,
+            primary: col.is_primary,
+            unique: col.is_unique,
+            nullable: col.is_nullable,
+            foreign_key: col.foreign_table_id
+              ? {
+                  references: `${data.tables.find((t) => t.id === col.foreign_table_id)?.name}.${col.foreign_column}`,
+                }
+              : null,
+          })),
+        },
+        darkMode,
+      },
+    }));
+
+    const loadedEdges = data.edges.map((edge) => ({
+      id: edge.id ?? crypto.randomUUID(), // 🔥 jangan random terus
+      source: edge.source_table_id,
+      target: edge.target_table_id,
+      sourceHandle: `${edge.source_table_id}-${edge.source_column}-source`,
+      targetHandle: `${edge.target_table_id}-${edge.target_column}-target`,
+      type: "smoothstep",
+      label: edge.label || "",
+    }));
+
+    setNodes(loadedNodes);
+    setEdges(loadedEdges);
+
+    console.log(
+      "Node IDs:",
+      loadedNodes.map((n) => n.id),
+    );
+    console.log(
+      "Edge Sources:",
+      loadedEdges.map((e) => e.source),
+    );
+    console.log(
+      "Edge Targets:",
+      loadedEdges.map((e) => e.target),
+    );
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -263,6 +327,59 @@ Example:
   const onConnect = useCallback(
     (params) => {
       saveHistory(nodes, edges);
+
+      const { source, target, sourceHandle, targetHandle } = params;
+
+      const sourceColumn = sourceHandle
+        ?.replace(`${source}-`, "")
+        ?.replace("-source", "");
+
+      const targetColumn = targetHandle
+        ?.replace(`${target}-`, "")
+        ?.replace("-target", "");
+
+      let childTable = source;
+      let parentTable = target;
+      let childColumn = sourceColumn;
+
+      // 🔥 FK selalu kolom *_id
+      if (!sourceColumn.endsWith("_id") && targetColumn.endsWith("_id")) {
+        childTable = target;
+        parentTable = source;
+        childColumn = targetColumn;
+      }
+
+      const parentName = nodes.find((n) => n.id === parentTable)?.data.table
+        .name;
+
+      // 🔥 Inject FK ke child
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id === childTable) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                table: {
+                  ...node.data.table,
+                  columns: node.data.table.columns.map((col) =>
+                    col.name === childColumn
+                      ? {
+                          ...col,
+                          foreign_key: {
+                            references: `${parentName}.id`, // 🔥 FIX DISINI
+                          },
+                        }
+                      : col,
+                  ),
+                },
+              },
+            };
+          }
+          return node;
+        }),
+      );
+
       setEdges((eds) => addEdge(params, eds));
     },
     [nodes, edges],
@@ -468,7 +585,7 @@ Update the database schema above.
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer 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`,
+            Authorization: `Bearer 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`,
           },
           body: JSON.stringify({
             model: "stepfun/step-3.5-flash:free",
@@ -490,6 +607,18 @@ Update the database schema above.
         ...updatedHistory,
         { role: "assistant", content: cleaned },
       ]);
+
+      if (projectId) {
+        await api.saveConversation(projectId, {
+          role: "user",
+          content: aiPrompt,
+        });
+
+        await api.saveConversation(projectId, {
+          role: "assistant",
+          content: cleaned,
+        });
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -504,20 +633,22 @@ Update the database schema above.
 
     const gapX = 400;
     const gapY = 300;
+    const tableIdMap = {};
 
     const generatedNodes = aiResult.tables.map((table, index) => {
-      const row = Math.floor(index / 2);
-      const col = index % 2;
+      const nodeId = table.name;
+
+      tableIdMap[table.name] = nodeId;
 
       return {
-        id: table.name,
+        id: nodeId,
         type: "custom",
         position: {
-          x: 200 + col * 400,
-          y: 100 + row * 300,
+          x: 200 + (index % 2) * 400,
+          y: 100 + Math.floor(index / 2) * 300,
         },
         data: {
-          table: table,
+          table,
           darkMode,
         },
       };
@@ -556,26 +687,12 @@ Update the database schema above.
 
           generatedEdges.push({
             id: crypto.randomUUID(),
-            source: table.name,
-            target: targetTable,
-            sourceHandle: `${table.name}-${col.name}-source`,
-            targetHandle: `${targetTable}-${targetColumn}-target`,
+            source: tableIdMap[table.name], // ✅ pakai UUID
+            target: tableIdMap[targetTable], // ✅ pakai UUID
+            sourceHandle: `${tableIdMap[table.name]}-${col.name}-source`,
+            targetHandle: `${tableIdMap[targetTable]}-${targetColumn}-target`,
             type: "smoothstep",
-            animated: false,
             label: relationLabel,
-            labelStyle: {
-              fill: darkMode ? "#fff" : "#111",
-              fontSize: 10,
-              fontWeight: 600,
-            },
-            labelBgStyle: {
-              fill: darkMode ? "#222" : "#fff",
-              stroke: darkMode ? "#444" : "#ddd",
-              strokeWidth: 1,
-              rx: 6,
-              ry: 6,
-            },
-            labelBgPadding: [6, 3],
           });
         }
       });
@@ -708,21 +825,44 @@ Update the database schema above.
   };
 
   useEffect(() => {
-    const tables = nodes
-      .filter((n) => n.data?.table)
-      .map((n) => ({
+    if (!projectId) return;
+
+    const timeout = setTimeout(async () => {
+      const tables = nodes.map((n) => ({
         id: n.id,
+        name: n.data.table.name,
         position: n.position,
-        table: n.data.table,
+        columns: n.data.table.columns,
       }));
 
-    const saveData = {
-      tables,
-      edges,
-    };
+      const formattedEdges = edges.map((e) => {
+        const sourceColumn = e.sourceHandle
+          ?.replace(`${e.source}-`, "")
+          ?.replace("-source", "");
 
-    localStorage.setItem("db_designer_project", JSON.stringify(saveData));
-  }, [nodes, edges]);
+        const targetColumn = e.targetHandle
+          ?.replace(`${e.target}-`, "")
+          ?.replace("-target", "");
+
+        return {
+          source_table_id: e.source,
+          target_table_id: e.target,
+          source_column: sourceColumn,
+          target_column: targetColumn,
+          label: e.label || null,
+        };
+      });
+
+      await api.saveSchema(projectId, {
+        tables,
+        edges: formattedEdges,
+      });
+
+      console.log("Auto saved ✅");
+    }, 1500);
+
+    return () => clearTimeout(timeout);
+  }, [nodes, edges, projectId]);
 
   return (
     <div
@@ -1056,7 +1196,7 @@ Update the database schema above.
               >
                 <FolderDown size={20} />
               </button>
-                <ImportMenu onSelect={(type) => setImportType(type)} />
+              <ImportMenu onSelect={(type) => setImportType(type)} />
             </div>
             <div
               style={{

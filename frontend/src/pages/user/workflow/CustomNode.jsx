@@ -274,7 +274,7 @@ const isSelected = data.selected;
               <Handle
                 type="target"
                 position={Position.Left}
-                id={`${tableName}-${col.name}-target`}
+                id={`${id}-${col.name}-target`}
                 style={{
                   top: "50%",
                   transform: "translateY(-50%)",
@@ -287,7 +287,7 @@ const isSelected = data.selected;
               <Handle
                 type="source"
                 position={Position.Right}
-                id={`${tableName}-${col.name}-source`}
+                id={`${id}-${col.name}-source`}
                 style={{
                   top: "50%",
                   transform: "translateY(-50%)",
