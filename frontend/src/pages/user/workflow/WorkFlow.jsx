@@ -29,6 +29,13 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { Panel } from "reactflow";
+import ImportMenu from "../../../components/ImportMenu";
+import ImportModal from "../../../components/ImportModal";
+import {
+  parseJSON,
+  parseSQL,
+  parseLaravel,
+} from "../../../components/importUtils";
 
 const nodeTypes = { custom: CustomNode };
 
@@ -117,6 +124,52 @@ Example:
 
   const { project } = useReactFlow();
   const wrapperRef = useRef(null);
+  const [importType, setImportType] = useState(null);
+
+  const handleImport = (type, content) => {
+  let parsed;
+
+  if (type === "json") parsed = parseJSON(content);
+  if (type === "sql") parsed = parseSQL(content);
+  if (type === "laravel") parsed = parseLaravel(content);
+
+  if (!parsed?.tables) return;
+
+  const newNodes = parsed.tables.map((table, index) => ({
+    id: table.name,
+    type: "custom",
+    position: { x: 200, y: 100 + index * 200 },
+    data: {
+      table,
+      darkMode,
+    },
+  }));
+
+  setNodes(newNodes);
+  setImportType(null);
+};
+
+
+  useEffect(() => {
+    const saved = localStorage.getItem("db_designer_project");
+
+    if (saved) {
+      const parsed = JSON.parse(saved);
+
+      const loadedNodes = parsed.tables.map((t) => ({
+        id: t.id,
+        type: "custom",
+        position: t.position,
+        data: {
+          table: t.table,
+          darkMode,
+        },
+      }));
+
+      setNodes(loadedNodes);
+      setEdges(parsed.edges || []);
+    }
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -234,13 +287,19 @@ Example:
 
   // ================= UPDATE LABEL =================
 
-  const updateNodeLabel = (id, newLabel) => {
+  const updateNodeLabel = (id, newTable) => {
     saveHistory(nodes, edges);
 
     setNodes((nds) =>
       nds.map((node) =>
         node.id === id
-          ? { ...node, data: { ...node.data, label: newLabel } }
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                table: newTable, // ✅ FIX DI SINI
+              },
+            }
           : node,
       ),
     );
@@ -373,12 +432,12 @@ Example:
   );
 
   const getCurrentDatabaseContext = () => {
-    return JSON.stringify(
-      aiResult || {
-        tables: [],
-        relations: [],
-      },
-    );
+    const tables = nodes.filter((n) => n.data?.table).map((n) => n.data.table);
+
+    return JSON.stringify({
+      tables,
+      relations: aiResult.relations || [],
+    });
   };
 
   const handleAskAI = async () => {
@@ -560,6 +619,109 @@ Update the database schema above.
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isDragging]);
+
+  const exportSQL = () => {
+    const tables = nodes.filter((n) => n.data?.table).map((n) => n.data.table);
+
+    let sql = "";
+
+    tables.forEach((table) => {
+      sql += `CREATE TABLE ${table.name} (\n`;
+
+      table.columns.forEach((col, index) => {
+        let line = `  ${col.name} ${col.type}`;
+
+        if (col.primary) line += " PRIMARY KEY";
+        if (col.unique) line += " UNIQUE";
+        if (col.nullable === false) line += " NOT NULL";
+
+        if (col.foreign_key?.references) {
+          const [refTable, refColumn] = col.foreign_key.references.split(".");
+          line += ` REFERENCES ${refTable}(${refColumn})`;
+        }
+
+        if (index < table.columns.length - 1) line += ",";
+
+        sql += line + "\n";
+      });
+
+      sql += ");\n\n";
+    });
+
+    downloadFile("schema.sql", sql);
+  };
+
+  const exportLaravelMigration = () => {
+    const tables = nodes.filter((n) => n.data?.table).map((n) => n.data.table);
+
+    let migration = "";
+
+    tables.forEach((table) => {
+      migration += `Schema::create('${table.name}', function (Blueprint $table) {\n`;
+
+      table.columns.forEach((col) => {
+        if (col.primary) {
+          migration += `    $table->uuid('${col.name}')->primary();\n`;
+          return;
+        }
+
+        let type = "string";
+
+        if (col.type.includes("uuid")) type = "uuid";
+        else if (col.type.includes("int")) type = "integer";
+        else if (col.type.includes("text")) type = "text";
+
+        migration += `    $table->${type}('${col.name}')`;
+
+        if (col.unique) migration += "->unique()";
+        if (col.nullable) migration += "->nullable()";
+
+        migration += ";\n";
+
+        if (col.foreign_key?.references) {
+          const [refTable, refColumn] = col.foreign_key.references.split(".");
+
+          migration += `    $table->foreign('${col.name}')\n`;
+          migration += `          ->references('${refColumn}')\n`;
+          migration += `          ->on('${refTable}');\n`;
+        }
+      });
+
+      migration += `    $table->timestamps();\n`;
+      migration += `});\n\n`;
+    });
+
+    downloadFile("migration.php", migration);
+  };
+
+  const downloadFile = (filename, content) => {
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  useEffect(() => {
+    const tables = nodes
+      .filter((n) => n.data?.table)
+      .map((n) => ({
+        id: n.id,
+        position: n.position,
+        table: n.data.table,
+      }));
+
+    const saveData = {
+      tables,
+      edges,
+    };
+
+    localStorage.setItem("db_designer_project", JSON.stringify(saveData));
+  }, [nodes, edges]);
 
   return (
     <div
@@ -866,8 +1028,36 @@ Update the database schema above.
               <Sparkles color="white" size={22} />
             </div>
           )}
-
           <Panel position="bottom-right">
+            <button
+              onClick={exportSQL}
+              style={{
+                marginTop: 8,
+                width: "100%",
+                padding: 8,
+                borderRadius: 8,
+                background: "#1f2937",
+                color: "white",
+                fontSize: 12,
+              }}
+            >
+              Export SQL
+            </button>
+
+            <button
+              onClick={exportLaravelMigration}
+              style={{
+                marginTop: 8,
+                width: "100%",
+                padding: 8,
+                borderRadius: 8,
+                background: "#0f172a",
+                color: "white",
+                fontSize: 12,
+              }}
+            >
+              Export Laravel Migration
+            </button>
             <div
               style={{
                 background: "#222",
@@ -994,6 +1184,16 @@ Update the database schema above.
           </div>
         </div>
       )}
+      <ImportMenu onSelect={(type) => setImportType(type)} />
+
+{importType && (
+  <ImportModal
+    type={importType}
+    onClose={() => setImportType(null)}
+    onImport={handleImport}
+  />
+)}
+
     </div>
   );
 };
