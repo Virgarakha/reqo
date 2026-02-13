@@ -39,6 +39,7 @@ import {
   parseLaravel,
 } from "../../../components/importUtils";
 import { api } from "../../../services/api";
+import Editor from "@monaco-editor/react";
 
 const nodeTypes = { custom: CustomNode };
 
@@ -131,6 +132,70 @@ Example:
 
   // backend implementasi
   const [projectId, setProjectId] = useState(null);
+  const [hasNewAIResult, setHasNewAIResult] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [sqlSidebarOpen, setSqlSidebarOpen] = useState(true);
+  const [sqlEditorValue, setSqlEditorValue] = useState("");
+  const [isEditingSQL, setIsEditingSQL] = useState(false);
+
+  useEffect(() => {
+    if (isEditingSQL) return; // 🔥 penting
+
+    const tables = nodes.filter((n) => n.data?.table).map((n) => n.data.table);
+
+    let sql = "";
+
+    tables.forEach((table) => {
+      sql += `CREATE TABLE ${table.name} (\n`;
+
+      table.columns.forEach((col, index) => {
+        let line = `  ${col.name} ${col.type}`;
+
+        if (col.primary) line += " PRIMARY KEY";
+        if (col.unique) line += " UNIQUE";
+        if (col.nullable === false) line += " NOT NULL";
+
+        if (col.foreign_key?.references) {
+          const [refTable, refColumn] = col.foreign_key.references.split(".");
+          line += ` REFERENCES ${refTable}(${refColumn})`;
+        }
+
+        if (index < table.columns.length - 1) line += ",";
+        sql += line + "\n";
+      });
+
+      sql += ");\n\n";
+    });
+
+    setSqlEditorValue(sql);
+  }, [nodes, isEditingSQL]);
+
+  useEffect(() => {
+    if (!isEditingSQL) return;
+
+    const timeout = setTimeout(() => {
+      const parsed = parseSQL(sqlEditorValue);
+
+      if (!parsed?.tables) return;
+
+      const newNodes = parsed.tables.map((table, index) => ({
+        id: table.name,
+        type: "custom",
+        position: { x: 200, y: 100 + index * 200 },
+        data: {
+          table,
+          darkMode,
+        },
+      }));
+
+      setNodes(newNodes);
+      setEdges([]);
+
+      setIsEditingSQL(false);
+    }, 800);
+
+    return () => clearTimeout(timeout);
+  }, [sqlEditorValue, isEditingSQL]);
 
   const handleImport = (type, content) => {
     let parsed;
@@ -567,13 +632,13 @@ Example:
         {
           role: "user",
           content: `
-Current Database Schema:
-${getCurrentDatabaseContext()}
+          Current Database Schema:
+          ${getCurrentDatabaseContext()}
 
-User Requirement:
-${aiPrompt}
+          User Requirement:
+          ${aiPrompt}
 
-Update the database schema above.
+          Update the database schema above.
 
         `,
         },
@@ -585,10 +650,11 @@ Update the database schema above.
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer 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`,
+            Authorization: `Bearer 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`,
           },
           body: JSON.stringify({
-            model: "stepfun/step-3.5-flash:free",
+            // model: "stepfun/step-3.5-flash:free",
+            model: "arcee-ai/trinity-large-preview:free",
             messages: updatedHistory,
           }),
         },
@@ -601,7 +667,10 @@ Update the database schema above.
       const parsed = JSON.parse(cleaned);
 
       setAiResult(parsed);
+      setHasNewAIResult(true);
 
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
       // simpan memory
       setChatHistory([
         ...updatedHistory,
@@ -702,6 +771,7 @@ Update the database schema above.
     setEdges(generatedEdges);
 
     setTimeout(() => fitView(), 200);
+    setHasNewAIResult(false);
   };
 
   const handleMouseDown = (e) => {
@@ -864,6 +934,64 @@ Update the database schema above.
     return () => clearTimeout(timeout);
   }, [nodes, edges, projectId]);
 
+  const convertJsonToSQL = (schema) => {
+    if (!schema?.tables) return "NO OUTPUT";
+
+    let sql = "";
+
+    schema.tables.forEach((table) => {
+      sql += `CREATE TABLE ${table.name} (\n`;
+
+      table.columns.forEach((col, index) => {
+        let line = `  ${col.name} ${col.type}`;
+
+        if (col.primary) line += " PRIMARY KEY";
+        if (col.unique) line += " UNIQUE";
+        if (col.nullable === false) line += " NOT NULL";
+
+        if (col.foreign_key?.references) {
+          const [refTable, refColumn] = col.foreign_key.references.split(".");
+          line += ` REFERENCES ${refTable}(${refColumn})`;
+        }
+
+        if (index < table.columns.length - 1) {
+          line += ",";
+        }
+
+        sql += line + "\n";
+      });
+
+      sql += ");\n\n";
+    });
+
+    return sql;
+  };
+
+  const highlightSQL = (sql) => {
+    if (!sql) return "";
+
+    return (
+      sql
+        // KEYWORDS
+        .replace(
+          /\b(CREATE|TABLE|PRIMARY|KEY|UNIQUE|NOT|NULL|REFERENCES)\b/g,
+          `<span style="color:#C586C0;">$1</span>`,
+        )
+        // DATATYPES
+        .replace(
+          /\b(uuid|varchar|int|integer|text)\b/g,
+          `<span style="color:#569CD6;">$1</span>`,
+        )
+        // Table names after CREATE TABLE
+        .replace(
+          /(CREATE TABLE\s+)(\w+)/g,
+          `$1<span style="color:#DCDCAA;">$2</span>`,
+        )
+        // Column names (awal baris)
+        .replace(/^\s*(\w+)\s+/gm, `<span style="color:#9CDCFE;">$1</span> `)
+    );
+  };
+
   return (
     <div
       ref={wrapperRef}
@@ -928,6 +1056,18 @@ Update the database schema above.
           >
             My Workflow 01
           </div>
+
+          <button
+            onClick={() => setSqlSidebarOpen(true)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: darkMode ? "#fff" : "#111",
+              cursor: "pointer",
+            }}
+          >
+            <FileCodeCorner size={18} />
+          </button>
         </div>
 
         {/* RIGHT SIDE */}
@@ -1024,6 +1164,99 @@ Update the database schema above.
             icon={<Maximize2 size={16} />}
           />
         </div>
+        {showToast && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 100,
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "#F2613F",
+              color: "white",
+              padding: "10px 20px",
+              borderRadius: 10,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+              zIndex: 9999,
+              fontSize: 13,
+              animation: "fadeSlide 0.4s ease",
+            }}
+          >
+            ✨ AI schema update ready!
+          </div>
+        )}
+
+        {/* SQL SIDEBAR */}
+        {sqlSidebarOpen && (
+          <div
+            style={{
+              position: "absolute",
+              top: 60,
+              left: 0,
+              bottom: 0,
+              width: 420,
+              background: "#1e1e1e",
+              borderRight: "1px solid #2a2a2a",
+              zIndex: 1500,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {/* HEADER */}
+            <div
+              style={{
+                padding: "12px 16px",
+                borderBottom: "1px solid #2a2a2a",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#fff",
+              }}
+            >
+              SQL Editor
+              <button
+                onClick={() => setSqlSidebarOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#aaa",
+                  cursor: "pointer",
+                }}
+              >
+                <Minimize2 size={16} />
+              </button>
+            </div>
+
+            {/* TEXTAREA */}
+            <Editor
+              height="100%"
+              defaultLanguage="sql"
+              value={sqlEditorValue}
+              theme="vs-dark"
+              onChange={(value) => {
+                setIsEditingSQL(true);
+                setSqlEditorValue(value || "");
+              }}
+              options={{
+                fontSize: 13,
+                minimap: { enabled: false },
+                automaticLayout: true,
+                wordWrap: "on",
+              }}
+            />
+
+            {/* FOOTER */}
+            <div
+              style={{
+                padding: 12,
+                borderTop: "1px solid #2a2a2a",
+                display: "flex",
+                gap: 8,
+              }}
+            ></div>
+          </div>
+        )}
 
         <ReactFlow
           nodes={nodesWithHandler}
@@ -1224,8 +1457,8 @@ Update the database schema above.
                 }}
               >
                 {(() => {
-                  const content = aiResult
-                    ? JSON.stringify(aiResult, null, 2)
+                  const content = aiResult?.tables?.length
+                    ? convertJsonToSQL(aiResult)
                     : "NO OUTPUT";
 
                   const lines = content.split("\n");
@@ -1247,9 +1480,16 @@ Update the database schema above.
                       </div>
 
                       {/* Code Content */}
-                      <div style={{ color: "#ccc", whiteSpace: "pre" }}>
-                        {content}
-                      </div>
+                      <div
+                        style={{
+                          whiteSpace: "pre",
+                          fontFamily: "monospace",
+                          fontSize: 12,
+                        }}
+                        dangerouslySetInnerHTML={{
+                          __html: highlightSQL(content),
+                        }}
+                      />
                     </>
                   );
                 })()}
@@ -1258,19 +1498,25 @@ Update the database schema above.
 
             {aiResult?.tables?.length > 0 && (
               <button
-                className="flex items-center justify-center gap-2"
                 onClick={generateDatabaseFromAI}
+                className={hasNewAIResult ? "ai-glow-button" : ""}
                 style={{
                   marginTop: 10,
                   width: "100%",
                   padding: 8,
                   borderRadius: 8,
-                  background: "#444",
+                  background: hasNewAIResult ? undefined : "#444",
                   color: "white",
                   fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  border: "none",
                 }}
               >
-                Generate Database <MousePointerClick size={18} />
+                {hasNewAIResult ? "New AI Update Ready" : "Generate Database"}
+                <MousePointerClick size={18} />
               </button>
             )}
           </Panel>

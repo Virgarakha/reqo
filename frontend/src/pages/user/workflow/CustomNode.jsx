@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Handle, Position } from "reactflow";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 const DATA_TYPES = [
   "uuid",
@@ -19,8 +19,7 @@ export default function CustomNode({ id, data }) {
 
   const table = data.table;
   const dark = data.darkMode;
-const isSelected = data.selected;
-
+  const isSelected = data.selected;
 
   const bg = dark ? "#1e1e1e" : "#ffffff";
   const headerBg = dark ? "#262626" : "#f3f4f6";
@@ -31,13 +30,34 @@ const isSelected = data.selected;
   const [editingTable, setEditingTable] = useState(false);
   const [editingColumnIndex, setEditingColumnIndex] = useState(null);
   const [editingTypeIndex, setEditingTypeIndex] = useState(null);
-
   const [tableName, setTableName] = useState(table.name);
+  const [columnMenu, setColumnMenu] = useState(null);
+
   const columns = table.columns;
 
   const updateParent = (newTable) => {
     data.onChange(id, newTable);
   };
+
+  const deleteColumn = (columnName) => {
+    const updatedColumns = table.columns.filter(
+      (col) => col.name !== columnName,
+    );
+
+    updateParent({
+      ...table,
+      name: tableName,
+      columns: updatedColumns,
+    });
+
+    setColumnMenu(null);
+  };
+
+  useEffect(() => {
+    const closeMenu = () => setColumnMenu(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, []);
 
   const handleTableBlur = () => {
     setEditingTable(false);
@@ -81,28 +101,6 @@ const isSelected = data.selected;
   };
 
   useEffect(() => {
-    const handleSaveShortcut = (e) => {
-      if (e.ctrlKey && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-
-        if (document.activeElement) {
-          document.activeElement.blur();
-        }
-
-        setEditingColumnIndex(null);
-        setEditingTypeIndex(null);
-        setEditingTable(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleSaveShortcut);
-
-    return () => {
-      window.removeEventListener("keydown", handleSaveShortcut);
-    };
-  }, []);
-
-  useEffect(() => {
     setTableName(table.name);
   }, [table.name]);
 
@@ -113,10 +111,8 @@ const isSelected = data.selected;
         borderRadius: 12,
         overflow: "hidden",
         background: bg,
-        border: isSelected
-  ? "1px solid #666"
-  : `1px solid ${borderColor}`,
-  transition: "all 0.15s ease",
+        border: isSelected ? "1px solid #666" : `1px solid ${borderColor}`,
+        transition: "all 0.15s ease",
         boxShadow: "0 8px 25px rgba(0,0,0,0.25)",
         fontSize: 12,
       }}
@@ -160,7 +156,6 @@ const isSelected = data.selected;
       <div>
         {columns.filter(Boolean).map((col, index) => {
           const safeType = col.type || "varchar(255)";
-
           const baseType = safeType.includes("(")
             ? safeType.split("(")[0]
             : safeType;
@@ -172,6 +167,20 @@ const isSelected = data.selected;
           return (
             <div
               key={index}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const updatedColumns = table.columns.filter(
+                  (c) => c.name !== col.name,
+                );
+
+                updateParent({
+                  ...table,
+                  name: tableName,
+                  columns: updatedColumns,
+                });
+              }}
               style={{
                 position: "relative",
                 padding: "8px 14px",
@@ -180,6 +189,7 @@ const isSelected = data.selected;
                 alignItems: "center",
                 borderBottom: `1px solid ${borderColor}`,
                 color: textColor,
+                cursor: "pointer",
               }}
             >
               {/* COLUMN NAME */}
@@ -189,7 +199,6 @@ const isSelected = data.selected;
                   display: "flex",
                   gap: 6,
                   alignItems: "center",
-                  cursor: "text",
                 }}
               >
                 {col.primary && <span>🔑</span>}
@@ -216,7 +225,7 @@ const isSelected = data.selected;
                 )}
               </div>
 
-              {/* TYPE EDITOR */}
+              {/* TYPE */}
               <div style={{ display: "flex", gap: 4 }}>
                 {editingTypeIndex === index ? (
                   <>
@@ -276,8 +285,6 @@ const isSelected = data.selected;
                 position={Position.Left}
                 id={`${id}-${col.name}-target`}
                 style={{
-                  top: "50%",
-                  transform: "translateY(-50%)",
                   background: "#888",
                   width: 8,
                   height: 8,
@@ -289,8 +296,6 @@ const isSelected = data.selected;
                 position={Position.Right}
                 id={`${id}-${col.name}-source`}
                 style={{
-                  top: "50%",
-                  transform: "translateY(-50%)",
                   background: "#888",
                   width: 8,
                   height: 8,
@@ -300,7 +305,7 @@ const isSelected = data.selected;
           );
         })}
 
-        {/* ADD COLUMN BUTTON */}
+        {/* ADD COLUMN */}
         <div
           onClick={addColumn}
           style={{
@@ -317,6 +322,32 @@ const isSelected = data.selected;
           Add Column
         </div>
       </div>
+
+      {/* CONTEXT MENU */}
+      {columnMenu && (
+        <div
+          style={{
+            position: "fixed",
+            top: columnMenu.y,
+            left: columnMenu.x,
+            background: "#1e1e1e",
+            padding: "6px 10px",
+            borderRadius: 8,
+            boxShadow: "0 8px 25px rgba(0,0,0,0.4)",
+            fontSize: 12,
+            cursor: "pointer",
+            color: "#ff4d4f",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            zIndex: 9999,
+          }}
+          onClick={() => deleteColumn(columnMenu.columnName)}
+        >
+          <Trash2 size={14} />
+          Delete Column
+        </div>
+      )}
     </div>
   );
 }
